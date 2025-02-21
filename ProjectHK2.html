@@ -1,0 +1,1639 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GeoGuide - AI Travel Assistant</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/weather-icons/2.0.10/css/weather-icons.min.css">
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
+
+        * {
+            font-family: 'Poppins', sans-serif;
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        .glassmorphism {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+
+        .layout-container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        .content-container {
+            flex: 1;
+            display: flex;
+            flex-direction: row;
+            overflow: hidden;
+        }
+
+        .map-container {
+            flex: 1;
+            position: relative;
+            transition: margin-right 0.3s ease;
+        }
+
+        #map {
+            height: 100%;
+            width: 100%;
+            position: absolute;
+        }
+
+        .sidebar {
+            background: rgba(255, 255, 255, 0.95);
+            width: 400px;
+            max-width: 100%;
+            height: calc(100vh - 64px); /* Subtract the height of the navigation bar */
+            overflow-y: auto;
+            transition: transform 0.3s ease;
+            position: fixed;
+            top: 64px; /* Height of the navigation bar */
+            right: 0;
+            transform: translateX(100%);
+            z-index: 1000;
+        }
+
+        .sidebar.open {
+            transform: translateX(0);
+        }
+
+        .map-container.full-width {
+            margin-right: 0;
+        }
+
+        .map-container.sidebar-open {
+            margin-right: 400px; /* Width of the sidebar */
+        }
+
+        .place-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 1rem;
+            padding: 1rem;
+        }
+
+        .place-card {
+            cursor: pointer;
+            transition: all 0.2s ease;
+            position: relative;
+            overflow: hidden;
+            background: white;
+            border: 1px solid rgba(0,0,0,0.05);
+        }
+
+        .place-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            background-color: #f8fafc;
+        }
+
+        /* Touch feedback effect */
+        .place-card::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 5px;
+            height: 5px;
+            background: rgba(59, 130, 246, 0.3);
+            opacity: 0;
+            border-radius: 100%;
+            transform: scale(1) translate(-50%, -50%);
+            transition: 0.5s;
+        }
+
+        .place-card.ripple::after {
+            animation: ripple 0.6s ease-out;
+        }
+
+        @keyframes ripple {
+            0% {
+                transform: scale(1) translate(-50%, -50%);
+                opacity: 1;
+            }
+            100% {
+                transform: scale(40) translate(-50%, -50%);
+                opacity: 0;
+            }
+        }
+
+        /* Rating badge style */
+        .rating-badge {
+            background: #FEF3C7;
+            color: #D97706;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.875rem;
+            display: flex;
+            align-items: center;
+            gap: 2px;
+        }
+
+        /* Crowd indicator style */
+        .crowd-indicator {
+            color: #6B7280;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 0.875rem;
+        }
+
+        @media (max-width: 768px) {
+            .sidebar {
+                width: 100%;
+            }
+
+            .map-container.sidebar-open {
+                margin-right: 0;
+            }
+        }
+
+        /* Chatbot styles */
+        .chat-widget {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 1000;
+        }
+
+        .chat-button {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: #2563eb;
+            color: white;
+            border: none;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            transition: all 0.3s ease;
+        }
+
+        .chat-button:hover {
+            transform: scale(1.05);
+        }
+
+        .chat-container {
+            position: fixed;
+            bottom: 90px;
+            right: 20px;
+            width: 350px;
+            height: 500px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.15);
+            display: none;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .chat-container.active {
+            display: flex;
+        }
+
+        .chat-header {
+            padding: 16px;
+            background: #2563eb;
+            color: white;
+            font-weight: 600;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .message {
+            max-width: 80%;
+            padding: 10px 14px;
+            border-radius: 14px;
+            margin: 4px 0;
+        }
+
+        .user-message {
+            background: #2563eb;
+            color: white;
+            align-self: flex-end;
+        }
+
+        .bot-message {
+            background: #f3f4f6;
+            color: #1f2937;
+            align-self: flex-start;
+        }
+
+        .chat-input {
+            padding: 16px;
+            border-top: 1px solid #e5e7eb;
+            display: flex;
+            gap: 8px;
+        }
+
+        .chat-input input {
+            flex: 1;
+            padding: 8px 12px;
+            border: 1px solid #e5e7eb;
+            border-radius: 20px;
+            outline: none;
+        }
+
+        .chat-input button {
+            padding: 8px 16px;
+            background: #2563eb;
+            color: white;
+            border: none;
+            border-radius: 20px;
+            cursor: pointer;
+        }
+
+        .wi {
+            color: white;
+            line-height: 1.5;
+            margin: 10px 0;
+        }
+        
+        .wi-spin {
+            animation: spin 2s linear infinite;
+        }
+        
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        
+        #weatherIcon {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100px;
+        }
+
+        .animate-pulse {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: .5;
+            }
+        }
+
+        .weather-widget {
+            background: linear-gradient(135deg, #00B4DB, #0083B0);
+            border-radius: 20px;
+            padding: 20px;
+            color: white;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+            margin: 20px;
+        }
+
+        .weather-main {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .weather-info {
+            text-align: left;
+        }
+
+        .temp-display {
+            font-size: 3.5rem;
+            font-weight: 700;
+            line-height: 1;
+            margin: 10px 0;
+        }
+
+        .weather-details {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid rgba(255,255,255,0.2);
+        }
+
+        .weather-detail-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 12px;
+            backdrop-filter: blur(10px);
+        }
+
+        .weather-icon-large {
+            width: 100px;
+            height: 100px;
+            filter: drop-shadow(0 0 8px rgba(255,255,255,0.2));
+        }
+
+        .update-time {
+            font-size: 0.8rem;
+            opacity: 0.8;
+            margin-top: 5px;
+        }
+
+        .location-info {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            margin-bottom: 5px;
+        }
+
+        .weather-description {
+            font-size: 1.2rem;
+            font-weight: 500;
+            margin: 5px 0;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .weather-widget {
+            animation: fadeIn 0.5s ease-out;
+        }
+
+        .assistant-bubble {
+            transform-origin: bottom right;
+            animation: bubble-in 0.3s ease-out;
+        }
+
+        @keyframes bubble-in {
+            from {
+                transform: scale(0.8);
+                opacity: 0;
+            }
+            to {
+                transform: scale(1);
+                opacity: 1;
+            }
+        }
+
+        #assistantToggle {
+            transition: transform 0.2s;
+        }
+
+        #assistantToggle:hover {
+            transform: scale(1.1);
+        }
+
+        .suggestion-pill {
+            animation: pill-in 0.3s ease-out;
+        }
+
+        @keyframes pill-in {
+            from {
+                transform: translateX(-10px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        #rightPanel {
+            scrollbar-width: thin;
+            scrollbar-color: #cbd5e1 #f1f5f9;
+        }
+
+        #rightPanel::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        #rightPanel::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+
+        #rightPanel::-webkit-scrollbar-thumb {
+            background-color: #cbd5e1;
+            border-radius: 3px;
+        }
+
+        .category-pill {
+            @apply px-3 py-1 rounded-full text-sm bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors whitespace-nowrap;
+        }
+
+        .category-pill.active {
+            @apply bg-blue-500 text-white hover:bg-blue-600;
+        }
+
+        .place-card {
+            transform: translateY(0);
+            transition: all 0.3s ease;
+        }
+
+        .place-card:hover {
+            transform: translateY(-2px);
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .section-container {
+            animation: fadeIn 0.3s ease-out;
+        }
+
+        .category-btn {
+            @apply flex items-center gap-2 px-4 py-2 rounded-lg text-gray-600 bg-gray-100 hover:bg-gray-200 transition-all duration-300;
+        }
+
+        .category-btn.active {
+            @apply bg-blue-500 text-white hover:bg-blue-600;
+        }
+
+        .category-btn .count {
+            @apply ml-2 text-xs bg-white/20 px-2 py-0.5 rounded-full;
+        }
+
+        .poi-card {
+            animation: slideIn 0.3s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="layout-container">
+        <!-- Navigation -->
+        <nav class="glassmorphism sticky top-0 z-50 shadow-lg h-16">
+            <div class="container mx-auto px-4 h-full">
+                <div class="flex justify-between items-center h-full">
+                    <div class="flex items-center space-x-4">
+                        <i class="bi bi-compass text-blue-600 text-2xl"></i>
+                        <span class="text-xl font-bold text-gray-800">GeoGuide</span>
+                    </div>
+                    <div class="flex items-center space-x-3">
+                        <!-- Search Input -->
+                        <div class="relative">
+                            <input type="text" id="searchInput" placeholder="Search places..." 
+                                   class="p-2 pl-4 pr-24 rounded-full border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 w-64">
+                            <button id="micButton" class="absolute right-2 top-1/2 transform -translate-y-1/2 px-3 py-1 bg-blue-100 text-blue-600 rounded-full flex items-center gap-2 hover:bg-blue-200 transition-all">
+                                <i class="bi bi-mic-fill"></i>
+                                <span class="text-sm">AI</span>
+                            </button>
+                            <!-- Add voice feedback element -->
+                            <div id="voiceFeedback" class="absolute mt-2 right-0 bg-white p-3 rounded-lg shadow-lg hidden">
+                                <div class="flex items-center gap-2">
+                                    <div class="animate-pulse">
+                                        <i class="bi bi-mic-fill text-blue-600"></i>
+                                    </div>
+                                    <span class="text-sm">Listening...</span>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- Sidebar Toggle Button -->
+                        <button id="sidebarToggle" class="p-2 rounded-full hover:bg-gray-100">
+                            <i class="bi bi-list text-gray-600 text-2xl"></i>
+                        </button>
+                        <button class="hidden md:block px-4 py-2 bg-blue-600 text-white rounded-full hover:bg-blue-700">
+                            Start Journey
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Main Content -->
+        <div class="content-container">
+            <!-- Map -->
+            <div id="mapContainer" class="map-container full-width">
+                <div id="map"></div>
+            </div>
+
+            <!-- Bottom Panel / Sidebar -->
+            <div id="sidebar" class="sidebar glassmorphism shadow-lg">
+                <!-- Weather Widget -->
+                <div class="bg-gradient-to-r from-blue-500 to-blue-700 p-4 text-white">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h3 class="font-semibold text-lg" id="cityName">New York City</h3>
+                            <p class="text-sm opacity-90" id="lastUpdated">Current Weather</p>
+                        </div>
+                        <div class="text-4xl" id="weatherIcon">
+                            <i class="bi bi-cloud-sun"></i>
+                        </div>
+                    </div>
+                    <div class="mt-2">
+                        <span class="text-3xl font-bold" id="temperature">--°C</span>
+                        <span class="text-sm ml-2" id="weatherDescription">Loading...</span>
+                    </div>
+                    <div class="mt-2 text-sm">
+                        <span id="humidity">Humidity: --%</span>
+                        <span class="ml-3" id="windSpeed">Wind: -- m/s</span>
+                    </div>
+                </div>
+
+                <!-- Categories -->
+                <div class="flex gap-2 p-4 overflow-x-auto">
+                    <button onclick="navigateToLocation('museums')" class="flex items-center space-x-2 px-4 py-2 bg-blue-100 text-blue-600 rounded-full whitespace-nowrap hover:bg-blue-200 transition-all">
+                        <i class="bi bi-bank"></i>
+                        <span>Museums</span>
+                    </button>
+                    <button onclick="navigateToLocation('parks')" class="flex items-center space-x-2 px-4 py-2 bg-green-100 text-green-600 rounded-full whitespace-nowrap hover:bg-green-200 transition-all">
+                        <i class="bi bi-tree"></i>
+                        <span>Parks</span>
+                    </button>
+                    <button onclick="navigateToLocation('cafes')" class="flex items-center space-x-2 px-4 py-2 bg-purple-100 text-purple-600 rounded-full whitespace-nowrap hover:bg-purple-200 transition-all">
+                        <i class="bi bi-cup-hot"></i>
+                        <span>Cafes</span>
+                    </button>
+                </div>
+
+                <!-- Places List -->
+                <div class="place-list">
+                    <!-- Dynamic content will be inserted here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="chat-widget">
+        <button class="chat-button" id="chatToggle">
+            <i class="bi bi-chat-dots-fill"></i>
+        </button>
+        
+        <div class="chat-container" id="chatContainer">
+            <div class="chat-header">
+                <span>GeoGuide Assistant</span>
+                <button class="text-white" onclick="toggleChat()">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+            <div class="chat-messages" id="chatMessages">
+                <div class="message bot-message">
+                    Hello! I'm your GeoGuide Assistant. How can I help you explore today?
+                </div>
+            </div>
+            <div class="chat-input">
+                <input type="text" id="chatInput" placeholder="Type your message...">
+                <button onclick="sendMessage()">
+                    <i class="bi bi-send"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add the smart assistant UI -->
+    <div id="smartAssistant" class="fixed bottom-20 right-4 z-50 transition-all duration-300 transform">
+        <div class="assistant-bubble bg-white rounded-2xl shadow-lg p-4 mb-2 max-w-xs hidden">
+            <div class="flex items-start gap-2">
+                <div class="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center">
+                    <i class="bi bi-robot text-white"></i>
+                </div>
+                <div class="flex-1">
+                    <p id="assistantMessage" class="text-sm"></p>
+                    <div id="assistantSuggestions" class="mt-2 flex flex-wrap gap-2"></div>
+                </div>
+            </div>
+        </div>
+        <button id="assistantToggle" class="bg-blue-500 hover:bg-blue-600 text-white rounded-full p-3 shadow-lg flex items-center justify-center">
+            <i class="bi bi-robot text-xl"></i>
+        </button>
+    </div>
+
+    <!-- Right Panel -->
+    <div id="rightPanel" class="fixed right-0 top-0 h-full w-80 bg-white shadow-lg z-40 overflow-y-auto">
+        <!-- Weather Section -->
+        <div class="section-container border-b">
+            <div class="p-4">
+                <h3 class="text-lg font-semibold mb-4">Weather</h3>
+                <!-- Weather content from previous implementation -->
+                <div id="currentWeather" class="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl p-4 text-white">
+                    <!-- Weather content here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Suggested Places Section -->
+        <div class="section-container border-b">
+            <div class="p-4">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-lg font-semibold">Suggested Places</h3>
+                    <button id="refreshSuggestions" class="text-blue-500 hover:text-blue-700">
+                        <i class="bi bi-arrow-clockwise"></i>
+                    </button>
+                </div>
+
+                <!-- Category Pills -->
+                <div class="flex gap-2 overflow-x-auto mb-4 pb-2">
+                    <button class="category-pill active" data-category="all">All</button>
+                    <button class="category-pill" data-category="trending">Trending</button>
+                    <button class="category-pill" data-category="food">Food</button>
+                    <button class="category-pill" data-category="attractions">Attractions</button>
+                    <button class="category-pill" data-category="shopping">Shopping</button>
+                </div>
+
+                <!-- Suggestions List -->
+                <div id="suggestionsList" class="space-y-3">
+                    <!-- Suggestions will be populated here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- POI List Section -->
+        <div class="section-container">
+            <div class="p-4">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-lg font-semibold">Places of Interest</h3>
+                    <div class="flex items-center gap-2">
+                        <select id="poiSort" class="text-sm border rounded-md px-2 py-1">
+                            <option value="distance">Nearest</option>
+                            <option value="rating">Top Rated</option>
+                            <option value="popularity">Popular</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Category Toggle Buttons -->
+                <div class="flex flex-wrap gap-2 mb-4">
+                    <button class="category-btn active" data-category="all">
+                        <i class="bi bi-grid"></i>
+                        <span>All</span>
+                        <span class="count">0</span>
+                    </button>
+                    <button class="category-btn" data-category="museums">
+                        <i class="bi bi-bank"></i>
+                        <span>Museums</span>
+                        <span class="count">0</span>
+                    </button>
+                    <button class="category-btn" data-category="parks">
+                        <i class="bi bi-tree"></i>
+                        <span>Parks</span>
+                        <span class="count">0</span>
+                    </button>
+                    <button class="category-btn" data-category="cafes">
+                        <i class="bi bi-cup-hot"></i>
+                        <span>Cafes</span>
+                        <span class="count">0</span>
+                    </button>
+                    <button class="category-btn" data-category="restaurants">
+                        <i class="bi bi-shop"></i>
+                        <span>Restaurants</span>
+                        <span class="count">0</span>
+                    </button>
+                </div>
+
+                <!-- Active Filters Display -->
+                <div id="activeFilters" class="flex flex-wrap gap-2 mb-4">
+                    <!-- Active filters will be shown here -->
+                </div>
+
+                <!-- POI List with Loading State -->
+                <div id="poiContainer">
+                    <div id="poiLoadingState" class="hidden">
+                        <div class="animate-pulse space-y-4">
+                            <div class="h-24 bg-gray-200 rounded-lg"></div>
+                            <div class="h-24 bg-gray-200 rounded-lg"></div>
+                            <div class="h-24 bg-gray-200 rounded-lg"></div>
+                        </div>
+                    </div>
+                    <div id="poiList" class="space-y-3">
+                        <!-- POIs will be populated here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Initialize map
+        const map = L.map('map').setView([40.7128, -74.0060], 13);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19
+        }).addTo(map);
+
+        // Sample places data
+        const places = [
+            {
+                name: "Metropolitan Museum",
+                type: "museum",
+                rating: 4.8,
+                lat: 40.7794,
+                lng: -73.9632,
+                crowd: "Moderate"
+            },
+            {
+                name: "Central Park",
+                type: "park",
+                rating: 4.9,
+                lat: 40.7829,
+                lng: -73.9654,
+                crowd: "Low"
+            },
+            {
+                name: "Blue Bottle Coffee",
+                type: "cafe",
+                rating: 4.6,
+                lat: 40.7135,
+                lng: -74.0026,
+                crowd: "High"
+            }
+        ];
+
+        // Add markers and create place cards
+        const placesList = document.querySelector('.place-list');
+        places.forEach(place => {
+            // Add marker
+            const marker = L.marker([place.lat, place.lng])
+                .addTo(map)
+                .bindPopup(`
+                    <div class="p-2">
+                        <h3 class="font-bold">${place.name}</h3>
+                        <p class="text-sm">${place.type}</p>
+                        <p class="text-sm">Rating: ⭐ ${place.rating}</p>
+                    </div>
+                `);
+
+            // Create place card
+            const card = document.createElement('div');
+            card.className = 'place-card bg-white rounded-lg p-4 shadow-sm';
+            card.innerHTML = `
+                <div class="flex justify-between items-start">
+                    <div>
+                        <h3 class="font-medium">${place.name}</h3>
+                        <p class="text-sm text-gray-500 capitalize">${place.type}</p>
+                    </div>
+                    <span class="text-yellow-500">⭐ ${place.rating}</span>
+                </div>
+                <div class="mt-3 flex items-center justify-between text-sm">
+                    <span class="text-gray-500">
+                        <i class="bi bi-people"></i> ${place.crowd}
+                    </span>
+                    <button onclick="navigateToPlace(${place.lat}, ${place.lng})" 
+                            class="text-blue-600 hover:text-blue-800">
+                        <i class="bi bi-arrow-right"></i>
+                    </button>
+                </div>
+            `;
+            placesList.appendChild(card);
+        });
+
+        function navigateToPlace(lat, lng) {
+            map.flyTo([lat, lng], 16, {
+                duration: 1.5,
+                easeLinearity: 0.25
+            });
+        }
+
+        // Check for speech recognition support
+        if (!('SpeechRecognition' in window || 'webkitSpeechRecognition' in window)) {
+            console.error("Speech recognition not supported in this browser.");
+        } else {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            const recognition = new SpeechRecognition();
+            recognition.lang = 'en-US';
+            recognition.interimResults = false;
+
+            // Start speech recognition when the microphone button is clicked
+            document.getElementById('micButton').addEventListener('click', () => {
+                console.log("Microphone button clicked. Starting speech recognition...");
+                recognition.start();
+            });
+
+            // Capture speech input
+            recognition.onresult = (event) => {
+                const transcript = event.results[0][0].transcript;
+                console.log("Recognized speech:", transcript);
+                document.getElementById('searchInput').value = transcript;
+                searchLocation(transcript);
+            };
+
+            // Handle errors
+            recognition.onerror = (event) => {
+                console.error("Speech recognition error:", event.error);
+                alert("Error: " + event.error);
+            };
+
+            // Handle when speech recognition ends
+            recognition.onend = () => {
+                console.log("Speech recognition ended.");
+            };
+        }
+
+        // Function to search location and update the map
+        function searchLocation(query) {
+            console.log("Searching for location:", query);
+            fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${query}`, {
+                headers: {
+                    'User-Agent': 'GeoGuideApp/1.0 (your-email@example.com)' // Add a User-Agent header
+                }
+            })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! Status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    console.log("API Response:", data); // Log the API response
+                    if (data.length > 0) {
+                        const { lat, lon } = data[0];
+                        console.log("Location found:", lat, lon);
+                        map.setView([lat, lon], 13);
+                        L.marker([lat, lon]).addTo(map).bindPopup(`<b>${query}</b>`).openPopup();
+                    } else {
+                        console.log("Location not found.");
+                        alert("Location not found!");
+                    }
+                })
+                .catch(error => {
+                    console.error("Error fetching location:", error);
+                    alert("Error fetching location. Please try again.");
+                });
+        }
+
+        // Sidebar toggle functionality
+        const sidebarToggle = document.getElementById('sidebarToggle');
+        const sidebar = document.getElementById('sidebar');
+        const mapContainer = document.getElementById('mapContainer');
+
+        sidebarToggle.addEventListener('click', () => {
+            sidebar.classList.toggle('open');
+            mapContainer.classList.toggle('sidebar-open');
+            mapContainer.classList.toggle('full-width');
+        });
+
+        // Chatbot functionality
+        function toggleChat() {
+            const chatContainer = document.getElementById('chatContainer');
+            chatContainer.classList.toggle('active');
+        }
+
+        document.getElementById('chatToggle').addEventListener('click', toggleChat);
+
+        document.getElementById('chatInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+
+        function sendMessage() {
+            const input = document.getElementById('chatInput');
+            const message = input.value.trim();
+            
+            if (message) {
+                addMessage(message, 'user');
+                input.value = '';
+                
+                // Simulate bot response
+                setTimeout(() => {
+                    const botResponses = {
+                        'default': "I can help you find interesting places, get directions, or learn about local attractions. What would you like to know?",
+                        'museum': "I can show you popular museums in the area. The Metropolitan Museum is highly rated!",
+                        'restaurant': "There are many great restaurants nearby. What type of cuisine are you interested in?",
+                        'park': "Central Park is a must-visit! Would you like me to show you the location?",
+                        'hotel': "I can help you find accommodations. What's your preferred area and budget?",
+                    };
+
+                    let botResponse = botResponses.default;
+                    
+                    // Simple keyword matching
+                    Object.keys(botResponses).forEach(key => {
+                        if (message.toLowerCase().includes(key)) {
+                            botResponse = botResponses[key];
+                        }
+                    });
+
+                    addMessage(botResponse, 'bot');
+                }, 1000);
+            }
+        }
+
+        function addMessage(text, sender) {
+            const messagesContainer = document.getElementById('chatMessages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${sender}-message`;
+            messageDiv.textContent = text;
+            messagesContainer.appendChild(messageDiv);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        // Weather API configuration
+        const WEATHER_API_KEY = '40d6d3084be46f4a74887692789d59f9';
+        const NY_LAT = '40.7128';
+        const NY_LON = '-74.0060';
+
+        // Function to update weather information
+        function updateWeather() {
+            // Using the newer API endpoint with geo coordinates
+            fetch(`https://api.openweathermap.org/data/2.5/weather?lat=${NY_LAT}&lon=${NY_LON}&appid=${WEATHER_API_KEY}&units=metric`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('Weather data:', data); // Debug log
+
+                    // Update temperature
+                    const temp = Math.round(data.main.temp);
+                    document.getElementById('temperature').textContent = `${temp}°C`;
+                    
+                    // Update weather description
+                    const description = data.weather[0].description;
+                    document.getElementById('weatherDescription').textContent = 
+                        description.charAt(0).toUpperCase() + description.slice(1);
+                    
+                    // Update weather icon using OpenWeatherMap icons
+                    const iconCode = data.weather[0].icon;
+                    document.getElementById('weatherIcon').innerHTML = 
+                        `<img src="https://openweathermap.org/img/wn/${iconCode}@2x.png" alt="Weather icon" style="width: 50px; height: 50px;">`;
+
+                    // Update humidity and wind speed
+                    document.getElementById('humidity').textContent = `Humidity: ${data.main.humidity}%`;
+                    document.getElementById('windSpeed').textContent = `Wind: ${Math.round(data.wind.speed)} m/s`;
+
+                    // Update last updated time
+                    const now = new Date();
+                    document.getElementById('lastUpdated').textContent = 
+                        `Updated: ${now.toLocaleTimeString()}`;
+
+                    // Update city name with actual data
+                    document.getElementById('cityName').textContent = data.name;
+                })
+                .catch(error => {
+                    console.error('Error fetching weather data:', error);
+                    document.getElementById('temperature').textContent = 'Error';
+                    document.getElementById('weatherDescription').textContent = 'Weather data unavailable';
+                });
+        }
+
+        // Update weather immediately and then every 5 minutes
+        updateWeather();
+        setInterval(updateWeather, 300000);
+
+        // Define locations for each category
+        const categoryLocations = {
+            museums: {
+                lat: 40.7794,
+                lng: -73.9632,
+                zoom: 15,
+                name: 'Metropolitan Museum of Art'
+            },
+            parks: {
+                lat: 40.7829,
+                lng: -73.9654,
+                zoom: 14,
+                name: 'Central Park'
+            },
+            cafes: {
+                lat: 40.7135,
+                lng: -74.0026,
+                zoom: 16,
+                name: 'Popular Cafe Area'
+            }
+        };
+
+        function navigateToLocation(category) {
+            const location = categoryLocations[category];
+            if (location) {
+                // Smooth animation to the new location
+                map.flyTo([location.lat, location.lng], location.zoom, {
+                    duration: 1.5, // Animation duration in seconds
+                    easeLinearity: 0.25
+                });
+
+                // Add a marker for the location
+                const marker = L.marker([location.lat, location.lng])
+                    .addTo(map)
+                    .bindPopup(`<b>${location.name}</b>`)
+                    .openPopup();
+
+                // Remove marker after 5 seconds
+                setTimeout(() => {
+                    map.removeLayer(marker);
+                }, 5000);
+
+                // Update the place list to show relevant locations
+                updatePlaceList(category);
+            }
+        }
+
+        function updatePlaceList(category) {
+            const placesList = document.querySelector('.place-list');
+            placesList.innerHTML = ''; // Clear existing places
+
+            // Filter places based on category
+            const filteredPlaces = places.filter(place => place.type === category);
+
+            filteredPlaces.forEach(place => {
+                const card = document.createElement('div');
+                card.className = 'place-card rounded-lg p-4';
+                card.innerHTML = `
+                    <div class="flex justify-between items-start mb-2">
+                        <div>
+                            <h3 class="font-medium text-gray-900">${place.name}</h3>
+                            <p class="text-sm text-gray-500 capitalize">${place.type}</p>
+                        </div>
+                        <div class="rating-badge">
+                            <i class="bi bi-star-fill"></i>
+                            <span>${place.rating}</span>
+                        </div>
+                    </div>
+                    <div class="crowd-indicator">
+                        <i class="bi bi-people"></i>
+                        <span>${place.crowd}</span>
+                    </div>
+                `;
+
+                // Add click handler for the entire card
+                card.addEventListener('click', (e) => {
+                    // Add ripple effect
+                    card.classList.add('ripple');
+                    
+                    // Navigate to location
+                    navigateToPlace(place.lat, place.lng);
+                    
+                    // Remove ripple class after animation
+                    setTimeout(() => {
+                        card.classList.remove('ripple');
+                    }, 600);
+
+                    // If sidebar is open on mobile, close it after navigation
+                    if (window.innerWidth <= 768) {
+                        setTimeout(() => {
+                            document.getElementById('sidebar').classList.remove('open');
+                        }, 300);
+                    }
+                });
+
+                // Add touch feedback for mobile
+                card.addEventListener('touchstart', () => {
+                    card.style.backgroundColor = '#f1f5f9';
+                });
+
+                card.addEventListener('touchend', () => {
+                    card.style.backgroundColor = '';
+                });
+
+                placesList.appendChild(card);
+            });
+
+            // Open the sidebar if it's not already open
+            const sidebar = document.getElementById('sidebar');
+            if (!sidebar.classList.contains('open')) {
+                document.getElementById('sidebarToggle').click();
+            }
+        }
+
+        // Voice recognition and AI assistant setup
+        let recognition;
+        let isListening = false;
+        const voiceFeedback = document.getElementById('voiceFeedback');
+        const micButton = document.getElementById('micButton');
+        const searchInput = document.getElementById('searchInput');
+
+        // Initialize speech recognition
+        if ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) {
+            recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+            recognition.continuous = false;
+            recognition.interimResults = false;
+            recognition.lang = 'en-US';
+
+            // Voice recognition event handlers
+            recognition.onstart = () => {
+                isListening = true;
+                voiceFeedback.classList.remove('hidden');
+                micButton.classList.add('bg-blue-600', 'text-white');
+                // AI greeting
+                speakAIResponse("Hello! Where would you like to go?");
+            };
+
+            recognition.onend = () => {
+                isListening = false;
+                voiceFeedback.classList.add('hidden');
+                micButton.classList.remove('bg-blue-600', 'text-white');
+            };
+
+            recognition.onresult = (event) => {
+                const transcript = event.results[0][0].transcript;
+                searchInput.value = transcript;
+                
+                // Process the voice input
+                processVoiceInput(transcript);
+            };
+
+            recognition.onerror = (event) => {
+                console.error('Speech recognition error:', event.error);
+                speakAIResponse("I'm sorry, I didn't catch that. Could you please try again?");
+            };
+        }
+
+        // Text-to-speech setup
+        const speechSynthesis = window.speechSynthesis;
+        function speakAIResponse(text) {
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.rate = 1;
+            utterance.pitch = 1;
+            utterance.volume = 1;
+            speechSynthesis.speak(utterance);
+        }
+
+        // Process voice input and navigate
+        function processVoiceInput(input) {
+            const lowercaseInput = input.toLowerCase();
+            
+            // Check for specific commands or locations
+            if (lowercaseInput.includes('museum') || lowercaseInput.includes('museums')) {
+                speakAIResponse("Taking you to the museums area.");
+                navigateToLocation('museums');
+            } else if (lowercaseInput.includes('park') || lowercaseInput.includes('parks')) {
+                speakAIResponse("Navigating to the parks.");
+                navigateToLocation('parks');
+            } else if (lowercaseInput.includes('cafe') || lowercaseInput.includes('coffee')) {
+                speakAIResponse("Showing you nearby cafes.");
+                navigateToLocation('cafes');
+            } else {
+                // Generic location search
+                speakAIResponse(`Searching for ${input}`);
+                searchLocation(input);
+            }
+        }
+
+        // Update the mic button click handler
+        micButton.addEventListener('click', () => {
+            if (!isListening) {
+                recognition.start();
+            } else {
+                recognition.stop();
+            }
+        });
+
+        // Update the searchLocation function
+        function searchLocation(query) {
+            console.log("Searching for location:", query);
+            fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`, {
+                headers: {
+                    'User-Agent': 'GeoGuideApp/1.0'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.length > 0) {
+                    const { lat, lon } = data[0];
+                    map.flyTo([lat, lon], 15, {
+                        duration: 1.5,
+                        easeLinearity: 0.25
+                    });
+                    
+                    // Add a marker with popup
+                    const marker = L.marker([lat, lon])
+                        .addTo(map)
+                        .bindPopup(`<b>${query}</b>`)
+                        .openPopup();
+
+                    // Remove marker after 5 seconds
+                    setTimeout(() => map.removeLayer(marker), 5000);
+
+                    // AI confirmation
+                    speakAIResponse(`I've found ${query}. The location is now displayed on the map.`);
+                } else {
+                    speakAIResponse("I'm sorry, I couldn't find that location. Please try another search.");
+                }
+            })
+            .catch(error => {
+                console.error("Error fetching location:", error);
+                speakAIResponse("I'm sorry, there was an error searching for that location.");
+            });
+        }
+
+        // Add keyboard shortcut for voice input
+        document.addEventListener('keydown', (e) => {
+            // Press '/' to activate voice input
+            if (e.key === '/' && document.activeElement !== searchInput) {
+                e.preventDefault();
+                micButton.click();
+            }
+        });
+
+        class SmartAssistant {
+            constructor() {
+                this.activityMode = 'walking';
+                this.lastLocation = null;
+                this.speed = 0;
+                this.visitedPlaces = new Set();
+                this.preferences = {};
+                this.init();
+            }
+
+            async init() {
+                // Initialize activity detection
+                this.initActivityDetection();
+                
+                // Initialize voice recognition
+                this.initVoiceRecognition();
+                
+                // Initialize image recognition
+                this.initImageRecognition();
+                
+                // Setup UI elements
+                this.setupUI();
+                
+                // Start monitoring user activity
+                this.startActivityMonitoring();
+            }
+
+            setupUI() {
+                const toggle = document.getElementById('assistantToggle');
+                const bubble = document.querySelector('.assistant-bubble');
+                
+                toggle.addEventListener('click', () => {
+                    bubble.classList.toggle('hidden');
+                    if (!bubble.classList.contains('hidden')) {
+                        this.provideContextualAssistance();
+                    }
+                });
+            }
+
+            async initActivityDetection() {
+                if ('DeviceMotionEvent' in window) {
+                    window.addEventListener('devicemotion', (event) => {
+                        this.updateActivityMode(event);
+                    });
+                }
+
+                // Watch user position
+                if ('geolocation' in navigator) {
+                    navigator.geolocation.watchPosition(
+                        (position) => this.handlePositionUpdate(position),
+                        null,
+                        { enableHighAccuracy: true }
+                    );
+                }
+            }
+
+            updateActivityMode(motionEvent) {
+                const acceleration = motionEvent.acceleration;
+                const speed = Math.sqrt(
+                    acceleration.x ** 2 + 
+                    acceleration.y ** 2 + 
+                    acceleration.z ** 2
+                );
+
+                // Determine activity mode based on speed and pattern
+                if (speed < 1.5) {
+                    this.activityMode = 'standing';
+                } else if (speed < 5) {
+                    this.activityMode = 'walking';
+                } else {
+                    this.activityMode = 'driving';
+                }
+
+                this.updateRecommendations();
+            }
+
+            handlePositionUpdate(position) {
+                const { latitude, longitude } = position.coords;
+                
+                if (this.lastLocation) {
+                    // Calculate speed and update recommendations
+                    this.speed = this.calculateSpeed(
+                        this.lastLocation,
+                        { latitude, longitude },
+                        position.timestamp
+                    );
+                }
+
+                this.lastLocation = { 
+                    latitude, 
+                    longitude, 
+                    timestamp: position.timestamp 
+                };
+
+                this.checkNearbyPlaces({ latitude, longitude });
+            }
+
+            async checkNearbyPlaces(location) {
+                // Query nearby places based on current location
+                const nearby = await this.getNearbyPlaces(location);
+                
+                nearby.forEach(place => {
+                    if (this.isNearby(location, place) && !this.visitedPlaces.has(place.id)) {
+                        this.suggestPlace(place);
+                    }
+                });
+            }
+
+            async provideContextualAssistance() {
+                const message = document.getElementById('assistantMessage');
+                const suggestions = document.getElementById('assistantSuggestions');
+                
+                let assistText = '';
+                let recommendedPlaces = [];
+
+                switch (this.activityMode) {
+                    case 'walking':
+                        assistText = "I notice you're walking. Here are some nearby points of interest:";
+                        recommendedPlaces = await this.getNearbyAttractions(500); // 500m radius
+                        break;
+                    case 'driving':
+                        assistText = "Since you're driving, here are some destinations worth visiting:";
+                        recommendedPlaces = await this.getNearbyAttractions(5000); // 5km radius
+                        break;
+                    case 'standing':
+                        assistText = "While you're here, you might want to check out:";
+                        recommendedPlaces = await this.getDetailedPlaceInfo();
+                        break;
+                }
+
+                message.textContent = assistText;
+                this.updateSuggestions(recommendedPlaces);
+            }
+
+            updateSuggestions(places) {
+                const container = document.getElementById('assistantSuggestions');
+                container.innerHTML = '';
+
+                places.forEach(place => {
+                    const pill = document.createElement('button');
+                    pill.className = 'px-3 py-1 bg-blue-100 text-blue-600 rounded-full text-sm hover:bg-blue-200 transition-colors';
+                    pill.textContent = place.name;
+                    pill.addEventListener('click', () => this.navigateToPlace(place));
+                    container.appendChild(pill);
+                });
+            }
+
+            async getNearbyAttractions(radius) {
+                // Implement based on your places API
+                // This is a placeholder
+                return [
+                    { name: 'Popular Museum', type: 'museum', distance: '300m' },
+                    { name: 'City Park', type: 'park', distance: '500m' },
+                    { name: 'Historic Site', type: 'landmark', distance: '800m' }
+                ];
+            }
+
+            navigateToPlace(place) {
+                // Existing navigation logic
+                map.flyTo([place.lat, place.lng], 16, {
+                    duration: 1.5,
+                    easeLinearity: 0.25
+                });
+
+                // Add to visited places
+                this.visitedPlaces.add(place.id);
+
+                // Update user preferences
+                this.updatePreferences(place);
+            }
+
+            updatePreferences(place) {
+                if (!this.preferences[place.type]) {
+                    this.preferences[place.type] = 0;
+                }
+                this.preferences[place.type]++;
+                
+                // Use preferences to improve future recommendations
+                this.updateRecommendations();
+            }
+
+            // Add more helper methods as needed...
+        }
+
+        // Initialize the smart assistant
+        const assistant = new SmartAssistant();
+
+        // Update existing map click handler to work with assistant
+        map.on('click', function(e) {
+            const { lat, lng } = e.latlng;
+            assistant.handleMapClick({ latitude: lat, longitude: lng });
+        });
+
+        class POIManager {
+            constructor() {
+                this.activeCategories = new Set(['all']);
+                this.allPOIs = new Map();
+                this.filteredPOIs = new Map();
+                this.init();
+            }
+
+            init() {
+                this.setupElements();
+                this.setupEventListeners();
+                this.loadInitialPOIs();
+            }
+
+            setupElements() {
+                this.elements = {
+                    categoryButtons: document.querySelectorAll('.category-btn'),
+                    poiList: document.getElementById('poiList'),
+                    activeFilters: document.getElementById('activeFilters'),
+                    loadingState: document.getElementById('poiLoadingState'),
+                    sortSelect: document.getElementById('poiSort')
+                };
+            }
+
+            setupEventListeners() {
+                // Category button clicks
+                this.elements.categoryButtons.forEach(button => {
+                    button.addEventListener('click', () => this.handleCategoryToggle(button));
+                });
+
+                // Sort change
+                this.elements.sortSelect.addEventListener('change', () => this.sortAndRenderPOIs());
+            }
+
+            handleCategoryToggle(button) {
+                const category = button.dataset.category;
+                
+                if (category === 'all') {
+                    // Handle 'All' category specially
+                    this.activeCategories.clear();
+                    this.activeCategories.add('all');
+                    this.elements.categoryButtons.forEach(btn => {
+                        btn.classList.toggle('active', btn.dataset.category === 'all');
+                    });
+                } else {
+                    // Remove 'all' category if it's active
+                    this.activeCategories.delete('all');
+                    button.classList.toggle('active');
+                    
+                    if (button.classList.contains('active')) {
+                        this.activeCategories.add(category);
+                    } else {
+                        this.activeCategories.delete(category);
+                    }
+
+                    // If no categories are selected, activate 'all'
+                    if (this.activeCategories.size === 0) {
+                        this.activeCategories.add('all');
+                        this.elements.categoryButtons[0].classList.add('active');
+                    }
+                }
+
+                this.updateActiveFilters();
+                this.loadPOIsForCategories();
+            }
+
+            updateActiveFilters() {
+                const filters = Array.from(this.activeCategories)
+                    .map(category => {
+                        if (category === 'all') return '';
+                        return `
+                            <div class="active-filter bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-sm flex items-center gap-1">
+                                <span>${this.capitalizeFirst(category)}</span>
+                                <button class="hover:text-blue-900" onclick="poiManager.removeFilter('${category}')">
+                                    <i class="bi bi-x"></i>
+                                </button>
+                            </div>
+                        `;
+                    })
+                    .filter(filter => filter !== '')
+                    .join('');
+
+                this.elements.activeFilters.innerHTML = filters;
+            }
+
+            removeFilter(category) {
+                this.activeCategories.delete(category);
+                const button = Array.from(this.elements.categoryButtons)
+                    .find(btn => btn.dataset.category === category);
+                if (button) button.classList.remove('active');
+
+                if (this.activeCategories.size === 0) {
+                    this.activeCategories.add('all');
+                    this.elements.categoryButtons[0].classList.add('active');
+                }
+
+                this.updateActiveFilters();
+                this.loadPOIsForCategories();
+            }
+
+            async loadPOIsForCategories() {
+                this.showLoading(true);
+                
+                try {
+                    if (this.activeCategories.has('all')) {
+                        await this.loadAllPOIs();
+                    } else {
+                        for (const category of this.activeCategories) {
+                            if (!this.allPOIs.has(category)) {
+                                await this.loadCategoryPOIs(category);
+                            }
+                        }
+                    }
+                    
+                    this.filterAndRenderPOIs();
+                } catch (error) {
+                    console.error('Error loading POIs:', error);
+                    this.showError();
+                } finally {
+                    this.showLoading(false);
+                }
+            }
+
+            showLoading(show) {
+                this.elements.loadingState.classList.toggle('hidden', !show);
+                this.elements.poiList.classList.toggle('opacity-50', show);
+            }
+
+            filterAndRenderPOIs() {
+                this.filteredPOIs.clear();
+                
+                for (const [category, pois] of this.allPOIs) {
+                    if (this.activeCategories.has('all') || this.activeCategories.has(category)) {
+                        pois.forEach(poi => this.filteredPOIs.set(poi.id, poi));
+                    }
+                }
+
+                this.sortAndRenderPOIs();
+                this.updateCounts();
+            }
+
+            sortAndRenderPOIs() {
+                const sortedPOIs = Array.from(this.filteredPOIs.values())
+                    .sort((a, b) => {
+                        switch (this.elements.sortSelect.value) {
+                            case 'rating': return b.rating - a.rating;
+                            case 'popularity': return b.popularity - a.popularity;
+                            default: return a.distance - b.distance;
+                        }
+                    });
+
+                this.renderPOIs(sortedPOIs);
+            }
+
+            renderPOIs(pois) {
+                const html = pois.map(poi => this.createPOICard(poi)).join('');
+                this.elements.poiList.innerHTML = html || this.getEmptyState();
+            }
+
+            createPOICard(poi) {
+                return `
+                    <div class="poi-card bg-white rounded-lg shadow-sm hover:shadow-md transition-all duration-300"
+                         data-category="${poi.category}">
+                        <div class="p-4">
+                            <div class="flex justify-between items-start">
+                                <div>
+                                    <h4 class="font-medium text-gray-900">${poi.name}</h4>
+                                    <p class="text-sm text-gray-500">${this.capitalizeFirst(poi.category)}</p>
+                                </div>
+                                <div class="flex items-center gap-1">
+                                    <span class="text-sm font-medium">${poi.rating.toFixed(1)}</span>
+                                    <i class="bi bi-star-fill text-yellow-400"></i>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-3 mt-2 text-sm text-gray-600">
+                                <span class="flex items-center gap-1">
+                                    <i class="bi bi-geo-alt"></i>
+                                    ${this.formatDistance(poi.distance)}
+                                </span>
+                                <span class="flex items-center gap-1">
+                                    <i class="bi bi-people"></i>
+                                    ${poi.crowdLevel}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            // ... (utility methods)
+        }
+
+        // Initialize POI Manager
+        const poiManager = new POIManager();
+    </script>
+</body>
+</html>
